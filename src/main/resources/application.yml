@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: hows-weather-api
+  data:
+    redis:
+      host: localhost
+      port: 6379
+qweather:
+  project-id: 492FY7QPEH
+  key-id: KBPQJ8PK7Y
+  private-key-path: classpath:xyz-private.pem
