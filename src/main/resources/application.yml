@@ -11,3 +11,8 @@ qweather:
   project-id: 492FY7QPEH
   key-id: KBPQJ8PK7Y
   private-key-path: classpath:xyz-private.pem
+api:
+  rate-limit:
+    enabled: true
+    max-requests-per-day: 10
+    paths: /api/weather/get
