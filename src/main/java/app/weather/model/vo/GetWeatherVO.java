@@ -211,7 +211,7 @@ public class GetWeatherVO {
     public GetWeatherVO buildHourlyWeather(HourlyWeatherResponse hourlyWeatherResponse) {
         List<HourlyWeather> collect = hourlyWeatherResponse.getHourly().stream()
                 .map(data -> {
-                    DateTime parseDateTime = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm+08:00")
+                    DateTime parseDateTime = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mmZ")
                             .parseDateTime(data.getFxTime());
                     HourlyWeather hourlyWeather = new HourlyWeather();
                     hourlyWeather.setFxDate(parseDateTime.toDate());
