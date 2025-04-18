@@ -83,7 +83,7 @@ public class RateLimitFilter implements WebFilter {
 
     private boolean isPathMatched(URI uri) {
         for (String path : paths) {
-            if (uri.getPath().startsWith(path)) {
+            if (uri.getPath().equals(path)) {
                 return true;
             }
         }
