@@ -1,153 +1,193 @@
 package app.weather.service;
 
-import app.weather.config.QWeatherApiConfig;
-import app.weather.model.qweather.DailyWeatherData;
-import app.weather.model.qweather.GeoLookupData;
-import app.weather.model.qweather.RealTimeWeatherData;
-import app.weather.model.qweather.param.TopCityQuery;
-import cn.hutool.http.HttpRequest;
-import cn.hutool.http.HttpResponse;
-import cn.hutool.http.HttpUtil;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Throwables;
+import app.weather.model.qweather.*;
 import lombok.extern.slf4j.Slf4j;
-import net.i2p.crypto.eddsa.EdDSAEngine;
-import net.i2p.crypto.eddsa.EdDSAPrivateKey;
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
-import net.i2p.crypto.eddsa.spec.EdDSAParameterSpec;
-import org.joda.time.DateTime;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.configurationprocessor.json.JSONException;
-import org.springframework.boot.configurationprocessor.json.JSONObject;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
-
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.PrivateKey;
-import java.security.Signature;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
 
 @Service
 @Slf4j
 public class QWeatherApi {
-    private static final String REDIS_JWT_KEY = "qweather:jwt:token";
-    @Autowired
-    private QWeatherApiConfig qWeatherApiConfig;
+
+    private final JwtService jwtService;
+    private final WebClient webClient;
 
     @Autowired
-    private StringRedisTemplate redisTemplate;
+    public QWeatherApi(JwtService jwtService, WebClient webClient) {
+        this.jwtService = jwtService;
+        this.webClient = webClient;
+    }
 
     /**
-     * 生成JWT TOKEN用于鉴权
+     * 统一处理 API 调用返回的错误状态码.
      *
+     * @param clientResponse 客户端响应
+     * @return 包含 WebClientResponseException 的 Mono 错误信号
+     */
+    private Mono<Throwable> handleApiError(org.springframework.web.reactive.function.client.ClientResponse clientResponse) {
+        return clientResponse.bodyToMono(String.class).flatMap(errorBody -> {
+            log.error("和风天气 API 调用失败: Status={}, Body={}", clientResponse.statusCode(), errorBody);
+            return Mono.error(WebClientResponseException.create(
+                    clientResponse.statusCode().value(),
+                    clientResponse.statusCode().toString(),
+                    clientResponse.headers().asHttpHeaders(),
+                    errorBody.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.charset.StandardCharsets.UTF_8
+            ));
+        });
+    }
+
+    /**
+     * 统一记录 API 成功响应日志.
+     *
+     * @param apiName      API 名称 (用于日志区分)
+     * @param responseCode API 返回的 code
+     * @param params       参数
+     */
+    private void logApiResponse(String apiName, String responseCode, String params) {
+        if ("200".equals(responseCode)) {
+            log.info("成功从 API 获取{}数据: params:{}", apiName, params);
+        } else {
+            log.warn("从 API 获取的{}数据 code 非 200 (不会缓存): responseCode={}, location={}",
+                    apiName, responseCode, params);
+        }
+    }
+
+    /**
+     * 获取指定地点的【天气生活指数】 (当天).
+     * 使用 @Cacheable 注解启用 Redis 缓存 ('weatherIndices').
+     */
+    @Cacheable(value = "weatherIndices", key = "#location + '-' + #type", unless = "#result == null || !'200'.equals(#result.code)")
+    public Mono<WeatherIndicesResponse> getWeatherIndices(String location, String type) {
+        log.info("getWeatherIndices location: {}, type: {}", location, type);
+        String jwtToken = jwtService.generateJwtToken();
+
+        return webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/v7/indices/1d")
+                        .queryParam("location", location)
+                        .queryParam("type", type)
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtToken)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, this::handleApiError)
+                .bodyToMono(WeatherIndicesResponse.class)
+                .doOnSuccess(response -> logApiResponse("天气指数", response != null ? response.getCode() : null,
+                        "location=" + location + ", type=" + type))
+                .doOnError(error -> !(error instanceof WebClientResponseException),
+                        error -> log.error("调用天气指数 API 或处理响应时发生非 API 错误: location={}, type={}", location, type, error));
+    }
+
+    /**
+     * 城市搜索 API (用于定位). 不进行缓存
+     */
+    public Mono<GeoLookupResponse> lookup(String location) {
+        log.info("lookup location: {}", location);
+        String jwtToken = jwtService.generateJwtToken();
+
+        return webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/geo/v2/city/lookup")
+                        .queryParam("location", location)
+                        .queryParam("range", "cn")
+                        .build())
+                .header("Authorization", "Bearer " + jwtToken)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, this::handleApiError)
+                .bodyToMono(GeoLookupResponse.class)
+                .doOnSuccess(response -> logApiResponse("城市搜索", response != null ? response.getCode() : null,
+                        "location=" + location))
+                .doOnError(error -> !(error instanceof WebClientResponseException),
+                        error -> log.error("调用城市搜索 API 或处理响应时发生非 API 错误: location={}", location, error));
+    }
+
+    /**
+     * 获取指定地点的【实时天气】.
+     *
+     * @param location 经纬度
      * @return
      */
-    public String generateJWT() {
-        // 先从缓存中获取
-        String token = redisTemplate.opsForValue().get(REDIS_JWT_KEY);
-        if (!StringUtils.isEmpty(token)) {
-            return token;
-        }
-        // header
-        JSONObject header = new JSONObject();
-        JSONObject payload = null;
-        try {
-            header.put("alg", "EdDSA");
-            header.put("kid", qWeatherApiConfig.getKeyId());
-            // payload
-            payload = new JSONObject();
-            payload.put("sub", qWeatherApiConfig.getProjectId());
-            payload.put("iat", DateTime.now().getMillis() / 1000);
-            payload.put("exp", DateTime.now().plusDays(1).getMillis() / 1000);
-        } catch (JSONException e) {
-            log.error("Failed to create JWT, error: {}", Throwables.getStackTraceAsString(e));
-            throw new RuntimeException(e);
-        }
+    @Cacheable(value = "realtimeWeatherCache", key = "#location", unless = "#result == null || !'200'.equals(#result.code)")
+    public Mono<RealTimeWeatherResponse> getRealtimeWeather(String location) {
+        log.info("getRealtimeWeather location: {}", location);
+        String jwtToken = jwtService.generateJwtToken();
 
-        // Base64url header+payload
-        String headerEncoded = base64UrlEncode(header.toString().getBytes(StandardCharsets.UTF_8));
-        String payloadEncoded = base64UrlEncode(payload.toString().getBytes(StandardCharsets.UTF_8));
-        // Create signing input
-        String data = headerEncoded + "." + payloadEncoded;
-
-        // sign
-        byte[] signature = null;
-        try {
-            signature = sign(data.getBytes(StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            log.error("Failed to sign data, error: {}", Throwables.getStackTraceAsString(e));
-            throw new RuntimeException(e);
-        }
-        String signatureEncoded = base64UrlEncode(signature);
-
-        token = data + "." + signatureEncoded;
-        // 缓存一天
-        redisTemplate.opsForValue().set(REDIS_JWT_KEY, token, 24 * 60 * 60, TimeUnit.SECONDS);
-        return token;
-    }
-
-    private String query(String url) {
-        String token = generateJWT();
-        String response = HttpRequest.get(url)
-                .header("Authorization", "Bearer " + token)
-                .execute()
-                .body();
-        return response;
+        return webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/v7/weather/now")
+                        .queryParam("location", location)
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtToken)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, this::handleApiError)
+                .bodyToMono(RealTimeWeatherResponse.class)
+                .doOnSuccess(response -> logApiResponse("实时天气", response != null ? response.getCode() : null,
+                        "location=" + location))
+                .doOnError(error -> !(error instanceof WebClientResponseException),
+                        error -> log.error("调用实时天气 API 或处理响应时发生非 API 错误: location={}", location, error));
     }
 
     /**
-     * 城市搜索
-     * https://dev.qweather.com/docs/api/geoapi/city-lookup/
+     * 每日天气预报(最近7天)
      *
-     * @param location 需要查询地区的名称，支持文字、以英文逗号分隔的经度,纬度坐标
+     * @param location 经纬度
+     * @return
      */
-    public List<GeoLookupData> lookupGeo(String location) {
-        if (StringUtils.isEmpty(location)) {
-            throw new IllegalArgumentException("location is empty");
-        }
-        String response = query("https://geoapi.qweather.com/v2/city/lookup?range=cn&location=" + location);
-        ObjectMapper objectMapper = new ObjectMapper();
-        List<GeoLookupData> data;
-        try {
-            JsonNode jsonNode = objectMapper.readTree(response);
-            JsonNode error = jsonNode.get("error");
-            if (error != null) {
-                log.error("Failed to lookup geo, location param: {}, response: {}", location, response);
-                return List.of();
-            }
-            int code = jsonNode.get("code").asInt();
-            if (code != 200) {
-                log.error("Failed to lookup geo, location param: {}, response: {}", location, response);
-                throw new RuntimeException("Failed to lookup geo");
-            }
-            data = objectMapper.readValue(jsonNode.get("location").toString(), new TypeReference<>() {
-            });
-            log.debug("Lookup geo success, data: {}", data);
-        } catch (Exception e) {
-            log.error("Failed to parse response, error: {},location param: {}, response: {}",
-                    Throwables.getStackTraceAsString(e), location, response);
-            throw new RuntimeException(e);
-        }
-        return data;
+    @Cacheable(value = "dailyWeatherCache", key = "#location", unless = "#result == null || !'200'.equals(#result.code)")
+    public Mono<DailyWeatherResponse> getDailyWeather(String location) {
+        log.info("getDailyWeather location: {}", location);
+        String jwtToken = jwtService.generateJwtToken();
+
+        return webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/v7/weather/7d")
+                        .queryParam("location", location)
+                        .build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtToken)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, this::handleApiError)
+                .bodyToMono(DailyWeatherResponse.class)
+                .doOnSuccess(response -> logApiResponse("每日天气", response != null ? response.getCode() : null,
+                        "location=" + location))
+                .doOnError(error -> !(error instanceof WebClientResponseException),
+                        error -> log.error("调用每日天气 API 或处理响应时发生非 API 错误: location={}", location, error));
     }
 
     /**
+     * 获取指定地点的【逐小时天气预报】 (未来 24 小时).
+     */
+    @Cacheable(value = "hourlyWeatherCache", key = "#location", unless = "#result == null || !'200'.equals(#result.code)")
+    public Mono<HourlyWeatherResponse> getHourlyWeatherForecast24h(String location) {
+        log.info("逐小时天气预报缓存未命中或已过期: location={}", location);
+        String jwtToken = jwtService.generateJwtToken();
+
+        return webClient.get()
+                .uri(uriBuilder -> uriBuilder.path("/v7/weather/24h").queryParam("location", location).build())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtToken)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, this::handleApiError)
+                .bodyToMono(HourlyWeatherResponse.class)
+                .doOnSuccess(response -> logApiResponse("逐小时天气预报", response != null ? response.getCode() : null, "location=" + location))
+                .doOnError(error -> !(error instanceof WebClientResponseException),
+                        error -> log.error("调用逐小时天气预报 API 或处理响应时发生非 API 错误: location={}", location, error));
+    }
+
+
+    /*
+
+     *//**
      * 实时天气
      * https://dev.qweather.com/docs/api/weather/weather-now/
      *
      * @param location 需要查询地区的LocationID或以英文逗号分隔的经度,纬度坐标 例如 location=101010100 或 location=116.41,39.92
      * @return
-     */
+     *//*
     public RealTimeWeatherData weatherNow(String location) {
         if (StringUtils.isEmpty(location)) {
             throw new IllegalArgumentException("location is empty");
@@ -172,14 +212,14 @@ public class QWeatherApi {
         return data;
     }
 
-    /**
+    *//**
      * 每日天气预报
      * https://dev.qweather.com/docs/api/weather/weather-daily-forecast/
      *
      * @param location       需要查询地区的LocationID或以英文逗号分隔的经度,纬度坐标 例如 location=101010100 或 location=116.41,39.92
      * @param queryDailyType 查询类型 1:3天 2:7天 3:10天 4:15天 5:30天
      * @return
-     */
+     *//*
     public List<DailyWeatherData> dailyWeather(String location, Integer queryDailyType) {
         if (StringUtils.isEmpty(location)) {
             throw new IllegalArgumentException("location is empty");
@@ -233,25 +273,5 @@ public class QWeatherApi {
             throw new RuntimeException(e);
         }
         return data;
-    }
-
-    private byte[] sign(byte[] data) throws Exception {
-        // Decode private key from Base64
-        byte[] privateKeyBytes = Base64.getDecoder().decode(qWeatherApiConfig.getPrivateKey());
-
-        // Create EdDSA private key
-        PKCS8EncodedKeySpec encodedKeySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
-        PrivateKey signingKey = new EdDSAPrivateKey(encodedKeySpec);
-
-        // Sign
-        EdDSAParameterSpec spec = EdDSANamedCurveTable.getByName(EdDSANamedCurveTable.ED_25519);
-        final Signature s = new EdDSAEngine(MessageDigest.getInstance(spec.getHashAlgorithm()));
-        s.initSign(signingKey);
-        s.update(data);
-        return s.sign();
-    }
-
-    private String base64UrlEncode(byte[] data) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(data);
-    }
+    }*/
 }

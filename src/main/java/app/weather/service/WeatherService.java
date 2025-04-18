@@ -1,67 +1,73 @@
 package app.weather.service;
 
-import app.weather.model.qweather.DailyWeatherData;
-import app.weather.model.qweather.RealTimeWeatherData;
+import app.weather.model.qweather.DailyWeatherResponse;
+import app.weather.model.qweather.HourlyWeatherResponse;
+import app.weather.model.qweather.RealTimeWeatherResponse;
+import app.weather.model.qweather.WeatherIndicesResponse;
 import app.weather.model.vo.GetWeatherVO;
 import lombok.extern.slf4j.Slf4j;
-import org.joda.time.LocalDate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Locale;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 @Service
 @Slf4j
 public class WeatherService {
+    private final QWeatherApi qWeatherApi;
+
     @Autowired
-    private QWeatherApi qWeatherApi;
+    public WeatherService(QWeatherApi qWeatherApi) {
+        this.qWeatherApi = qWeatherApi;
+    }
 
-    public GetWeatherVO getWeather(String location) {
-        // 1. 获取实时天气数据
-        RealTimeWeatherData realTimeWeatherData = qWeatherApi.weatherNow(location);
-        if (realTimeWeatherData == null) {
-            log.error("获取实时天气数据失败");
-            return null;
-        }
+    /**
+     * 获取聚合天气数据
+     *
+     * @param location 经纬度
+     * @return
+     */
+    public Mono<GetWeatherVO> getWeather(String location) {
 
-        // 2. 获取未来7天的天气预报数据
-        List<DailyWeatherData> dailyWeatherData = qWeatherApi.dailyWeather(location, 2);
-        if (dailyWeatherData == null) {
-            log.error("获取未来7天的天气预报数据失败");
-            return null;
-        }
+        // 并发调用天气API
+        Mono<RealTimeWeatherResponse> realTimeWeatherMono = qWeatherApi.getRealtimeWeather(location)
+                .onErrorResume(e -> {
+                    log.error("获取实时天气失败: {}", e.getMessage());
+                    return Mono.justOrEmpty(Optional.empty());
+                });
+        Mono<DailyWeatherResponse> dailyWeatherMono = qWeatherApi.getDailyWeather(location)
+                .onErrorResume(e -> {
+                    log.error("获取每日天气失败: {}", e.getMessage());
+                    return Mono.justOrEmpty(Optional.empty());
+                });
+        Mono<HourlyWeatherResponse> hourlyWeatherMono = qWeatherApi.getHourlyWeatherForecast24h(location)
+                .onErrorResume(e -> {
+                    log.error("获取逐小时天气失败: {}", e.getMessage());
+                    return Mono.justOrEmpty(Optional.empty());
+                });
+        // 获取天气指数 包含运动指数、洗车指数、穿衣指数、紫外线指数、晾晒指数
+        Mono<WeatherIndicesResponse> weatherIndicesMono = qWeatherApi.getWeatherIndices(location, "1,2,3,5,14")
+                .onErrorResume(e -> {
+                    log.error("获取天气指数失败: {}", e.getMessage());
+                    return Mono.justOrEmpty(Optional.empty());
+                });
 
-        // 3. 构建返回对象
-        GetWeatherVO vo = new GetWeatherVO();
-        vo.setTemp(realTimeWeatherData.getTemp());
-        vo.setFeelsLike(realTimeWeatherData.getFeelsLike());
-        vo.setHumidity(realTimeWeatherData.getHumidity());
-        vo.setIcon(realTimeWeatherData.getIcon());
-        vo.setText(realTimeWeatherData.getText());
-
-        // 4. 设置未来天气数据
-        List<GetWeatherVO.DailyWeather> dailyWeatherList = dailyWeatherData.stream()
-                .map(data -> {
-                    GetWeatherVO.DailyWeather dailyWeather = new GetWeatherVO.DailyWeather();
-                    // 设置日期格式为"MM月dd日"
-                    dailyWeather.setFxDate(data.getFxDate());
-                    if (LocalDate.fromDateFields(data.getFxDate()).equals(LocalDate.now())) {
-                        dailyWeather.setDayOfWeek("今天");
-                    } else {
-                        String dayOfWeek = LocalDate.fromDateFields(data.getFxDate()).dayOfWeek().getAsShortText(Locale.CHINA);
-                        dailyWeather.setDayOfWeek(dayOfWeek);
-                    }
-                    dailyWeather.setTempMax(data.getTempMax());
-                    dailyWeather.setTempMin(data.getTempMin());
-                    dailyWeather.setIcon(data.getIconDay());
-                    dailyWeather.setText(data.getTextDay());
-                    return dailyWeather;
+        // 3. 聚合天气数据
+        return Mono.zip(realTimeWeatherMono, dailyWeatherMono, hourlyWeatherMono, weatherIndicesMono)
+                .map(tuple -> {
+                    RealTimeWeatherResponse realTimeWeatherResponse = tuple.getT1();
+                    DailyWeatherResponse dailyWeatherResponse = tuple.getT2();
+                    HourlyWeatherResponse hourlyWeatherResponse = tuple.getT3();
+                    WeatherIndicesResponse weatherIndicesResponse = tuple.getT4();
+                    // 构建返回对象
+                    GetWeatherVO vo = new GetWeatherVO();
+                    vo.buildRealtimeWeather(realTimeWeatherResponse);
+                    vo.buildDailyWeather(dailyWeatherResponse);
+                    vo.buildHourlyWeather(hourlyWeatherResponse);
+                    vo.buildWeatherIndices(weatherIndicesResponse);
+                    return vo;
                 })
-                .collect(Collectors.toList());
-        vo.setDailyWeatherList(dailyWeatherList);
-        return vo;
+                .doOnError(e -> log.error("聚合天气数据时发生错误: location: {}", location, e));
     }
 }

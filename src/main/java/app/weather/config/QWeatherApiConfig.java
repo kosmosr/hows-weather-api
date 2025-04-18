@@ -15,6 +15,9 @@ import java.nio.charset.StandardCharsets;
 @Data
 public class QWeatherApiConfig {
 
+    @Value("${qweather.api-host}")
+    private String apiHost;
+
     @Value("${qweather.project-id}")
     private String projectId;
 

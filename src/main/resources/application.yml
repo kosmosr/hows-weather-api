@@ -1,11 +1,13 @@
 spring:
   application:
     name: hows-weather-api
-  data:
-    redis:
-      host: localhost
-      port: 6379
+  profiles:
+    active: dev
+  cache:
+    type: redis
+    cache-names: jwtTokenCache,weatherIndices,hourlyWeatherCache,realtimeWeatherCache,dailyWeatherCache
 qweather:
+  api-host: https://mw3h2nxdcj.re.qweatherapi.com
   project-id: 492FY7QPEH
   key-id: KBPQJ8PK7Y
   private-key-path: classpath:xyz-private.pem

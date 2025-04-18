@@ -1,0 +1,7 @@
+spring:
+  data:
+    redis:
+      host: hows-weather-redis-redis.ns-uhk7j7s9.svc
+      port: 6379
+      username: default
+      password: 4jkj9zxr

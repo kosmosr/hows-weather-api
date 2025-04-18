@@ -3,13 +3,9 @@ package app.weather.model.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
-import java.io.Serializable;
-
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class ResultResponse<T> implements Serializable {
-
-    private static final long serialVersionUID = 1L;
+public class ResultResponse<T> {
 
     /**
      * 状态码
@@ -38,6 +34,21 @@ public class ResultResponse<T> implements Serializable {
         response.setCode(StatusEnum.SUCCESS.getCode());
         response.setMessage(StatusEnum.SUCCESS.getMessage());
         response.setData(data);
+        return response;
+    }
+
+    /**
+     * 创建一个带有错误信息的ResultResponse对象。
+     *
+     * @param code    状态码
+     * @param message 错误信息
+     * @param <T>     泛型类型，表示响应数据的类型
+     * @return 包含给定状态码和错误信息的ResultResponse对象
+     */
+    public static <T> ResultResponse<T> error(Integer code, String message) {
+        ResultResponse<T> response = new ResultResponse<>();
+        response.setCode(code);
+        response.setMessage(message);
         return response;
     }
 
