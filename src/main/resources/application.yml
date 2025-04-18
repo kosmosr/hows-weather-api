@@ -2,7 +2,7 @@ spring:
   application:
     name: hows-weather-api
   profiles:
-    active: dev
+    active: prod
   cache:
     type: redis
     cache-names: jwtTokenCache,weatherIndices,hourlyWeatherCache,realtimeWeatherCache,dailyWeatherCache
@@ -13,6 +13,6 @@ qweather:
   private-key-path: classpath:xyz-private.pem
 api:
   rate-limit:
-    enabled: true
-    max-requests-per-day: 10
+    enabled: ${WEATHER_API_RATE_LIMIT_ENABLED:true}
+    max-requests-per-day: ${WEATHER_API_MAX_REQUESTS_PER_DAY:100}
     paths: /api/weather/get
