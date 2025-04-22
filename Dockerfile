@@ -1,6 +1,6 @@
 # ---- Build Stage ----
 # 使用包含 JDK 和 Maven 的镜像作为构建环境
-FROM 3.9.9-eclipse-temurin-21-jammy AS builder
+FROM maven:3.9.9-eclipse-temurin-21-jammy AS builder
 WORKDIR /workspace/app
 
 COPY pom.xml pom.xml
