@@ -13,6 +13,6 @@ qweather:
   private-key-path: classpath:xyz-private.pem
 api:
   rate-limit:
-    enabled: ${WEATHER_API_RATE_LIMIT_ENABLED:true}
+    enabled: ${WEATHER_API_RATE_LIMIT_ENABLED:false}
     max-requests-per-day: ${WEATHER_API_MAX_REQUESTS_PER_DAY:100}
     paths: /api/weather/get
