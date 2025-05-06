@@ -31,10 +31,10 @@ COPY --from=builder /workspace/app/target/*.jar app.jar
 RUN chown ${USER}:${GROUP} /app/app.jar
 
 # 设置QWeather API 私钥的路径
-RUN --mount=type=secret,id=QWEATHER_PRIVATE_KEY,env=QWEATHER_PRIVATE_KEY \
-    cp /run/secrets/QWEATHER_PRIVATE_KEY /app/qweather_private_key.pem && \
+RUN --mount=type=secret,id=qweather_private_key,env=QWEATHER_PRIVATE_KEY \
+    cp /run/secrets/qweather_private_key /app/qweather_private_key.pem && \
     chown ${USER}:${GROUP} /app/qweather_private_key.pem
-ENV QWEATHER_PRIVATE_KEY_PATH = /app/qweather_private_key.pem
+ENV QWEATHER_PRIVATE_KEY_PATH  /app/qweather_private_key.pem
 
 # 切换到非 root 用户
 USER ${USER}:${GROUP}
