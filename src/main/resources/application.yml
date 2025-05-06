@@ -10,7 +10,7 @@ qweather:
   api-host: https://mw3h2nxdcj.re.qweatherapi.com
   project-id: 492FY7QPEH
   key-id: KBPQJ8PK7Y
-  private-key-path: classpath:xyz-private.pem
+  private-key-path: ${QWEATHER_PRIVATE_KEY_PATH:classpath:xyz-private.pem}
 api:
   rate-limit:
     enabled: ${WEATHER_API_RATE_LIMIT_ENABLED:false}

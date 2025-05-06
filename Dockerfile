@@ -30,6 +30,8 @@ COPY --from=builder /workspace/app/target/*.jar app.jar
 # 更改 JAR 文件的所有者为非 root 用户
 RUN chown ${USER}:${GROUP} /app/app.jar
 
+ENV QWEATHER_PRIVATE_KEY_PATH = /app/qweather_private_key.pem
+
 # 切换到非 root 用户
 USER ${USER}:${GROUP}
 

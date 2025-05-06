@@ -36,6 +36,13 @@ jobs:
       with:
         images: ${{ secrets.DOCKERHUB_USERNAME }}/hows-weather-api
 
+    # 步骤 6: 设置 QWeather 私钥
+    - name: Set-up key
+      env:
+       QWEATHER_PRIVATE_KEY: ${{ secrets.QWEATHER_PRIVATE_KEY }}
+      run: |
+        echo "${QWEATHER_PRIVATE_KEY}" > /app/qweather_private_key.pem
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v6
       with:
