@@ -47,4 +47,4 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         secrets: |
-          "id=qweather_private_key,env=QWEATHER_PRIVATE_KEY"
+          "QWEATHER_PRIVATE_KEY=${{ secrets.QWEATHER_PRIVATE_KEY }}"
