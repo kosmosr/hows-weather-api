@@ -30,6 +30,10 @@ COPY --from=builder /workspace/app/target/*.jar app.jar
 # 更改 JAR 文件的所有者为非 root 用户
 RUN chown ${USER}:${GROUP} /app/app.jar
 
+# 设置QWeather API 私钥的路径
+RUN --mount=type=secret,id=qweather_private_key \
+    cp /run/secrets/qweather_private_key /app/qweather_private_key.pem && \
+    chown ${USER}:${GROUP} /app/qweather_private_key.pem
 ENV QWEATHER_PRIVATE_KEY_PATH = /app/qweather_private_key.pem
 
 # 切换到非 root 用户
