@@ -32,7 +32,7 @@ RUN chown ${USER}:${GROUP} /app/app.jar
 
 # 设置QWeather API 私钥的路径
 RUN --mount=type=secret,id=qweather_private_key,env=QWEATHER_PRIVATE_KEY \
-    cp /run/secrets/qweather_private_key /app/qweather_private_key.pem && \
+    ls -ln /run/secrets & cp /run/secrets/qweather_private_key /app/qweather_private_key.pem && \
     chown ${USER}:${GROUP} /app/qweather_private_key.pem
 ENV QWEATHER_PRIVATE_KEY_PATH  /app/qweather_private_key.pem
 
