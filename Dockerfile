@@ -5,7 +5,9 @@ WORKDIR /workspace/app
 
 # 设置QWeather API 私钥的路径
 RUN --mount=type=secret,id=qweather_private_key,env=QWEATHER_PRIVATE_KEY \
-    ls -ln /run/secrets & cp /run/secrets/qweather_private_key /app/qweather_private_key.pem
+    echo "$QWEATHER_PRIVATE_KEY" > /app/qweather_private_key.pem
+
+RUN ls -l /app/qweather_private_key.pem
 
 COPY pom.xml pom.xml
 # 利用 Maven 缓存下载依赖项 (优化层缓存)
