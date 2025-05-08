@@ -37,4 +37,4 @@ USER ${USER}:${GROUP}
 EXPOSE 8080
 
 # 设置容器启动命令
-ENTRYPOINT ["java", "-DQWEATHER_PRIVATE_KEY=$QWEATHER_PRIVATE_KEY -jar", "/app/app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
