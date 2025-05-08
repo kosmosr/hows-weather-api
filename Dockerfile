@@ -3,12 +3,6 @@
 FROM maven:3.9.9-eclipse-temurin-21-jammy AS builder
 WORKDIR /workspace/app
 
-# 设置QWeather API 私钥的路径
-RUN --mount=type=secret,id=qweather_private_key,env=QWEATHER_PRIVATE_KEY \
-    echo "$QWEATHER_PRIVATE_KEY" > /app/qweather_private_key.pem
-
-RUN ls -l /app/qweather_private_key.pem
-
 COPY pom.xml pom.xml
 # 利用 Maven 缓存下载依赖项 (优化层缓存)
 # 如果 pom.xml 没有改变，这一层将被缓存
@@ -36,6 +30,11 @@ COPY --from=builder /workspace/app/target/*.jar app.jar
 # 更改 JAR 文件的所有者为非 root 用户
 RUN chown ${USER}:${GROUP} /app/app.jar
 
+# 设置QWeather API 私钥的路径
+RUN --mount=type=secret,id=qweather_private_key,env=QWEATHER_PRIVATE_KEY \
+    echo "$QWEATHER_PRIVATE_KEY" > /app/qweather_private_key.pem
+
+RUN ls -l /app/qweather_private_key.pem
 ENV QWEATHER_PRIVATE_KEY_PATH  /app/qweather_private_key.pem
 
 # 切换到非 root 用户
